@@ -1,0 +1,47 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>WebSocket PWA</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="manifest" href="manifest.json" />
+</head>
+<body>
+  <h1>WebSocket PWA</h1>
+  <input type="text" id="msg" placeholder="メッセージを入力" />
+  <button onclick="send()">送信</button>
+  <ul id="chat"></ul>
+
+  <script>
+    let ws;
+
+    async function connect() {
+      const url = "wss://xxxx-xx-xx-xx.ngrok.io"; // ← ngrok URLをここに入れて
+      ws = new WebSocket(url);
+
+      ws.onopen = () => console.log("接続成功");
+      ws.onmessage = e => {
+        const li = document.createElement("li");
+        li.textContent = e.data;
+        document.getElementById("chat").appendChild(li);
+      };
+      ws.onclose = () => {
+        console.log("切断されました。再接続します…");
+        setTimeout(connect, 3000);
+      };
+    }
+
+    function send() {
+      const msg = document.getElementById("msg").value;
+      ws.send(msg);
+      document.getElementById("msg").value = "";
+    }
+
+    window.addEventListener("load", connect);
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js');
+    }
+  </script>
+</body>
+</html>
