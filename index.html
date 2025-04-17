@@ -1,47 +1,179 @@
-<!-- index.html -->
+<!-- index.html (改善版) -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja"> <!-- 日本語指定 -->
 <head>
   <meta charset="UTF-8" />
-  <title>WebSocket PWA</title>
+  <title>WebSocket チャット</title> <!-- 分かりやすいタイトルに -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="manifest" href="manifest.json" />
+  <style>
+    /* 簡単なスタイルを追加 */
+    body { font-family: sans-serif; margin: 1em; }
+    #chat { list-style: none; padding: 0; height: 300px; overflow-y: scroll; border: 1px solid #ccc; margin-bottom: 1em; background-color: #f9f9f9; }
+    #chat li { padding: 8px 12px; border-bottom: 1px solid #eee; }
+    #chat li:last-child { border-bottom: none; }
+    #controls { display: flex; gap: 0.5em; } /* 入力とボタンの間隔 */
+    #msg { flex-grow: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+    #sendBtn { padding: 8px 15px; border: none; background-color: #007bff; color: white; border-radius: 4px; cursor: pointer; }
+    #sendBtn:disabled { background-color: #ccc; cursor: not-allowed; }
+    #status { margin-top: 0.5em; font-size: 0.9em; color: #666; min-height: 1.2em; /* 表示がガタつくのを防ぐ */}
+  </style>
 </head>
 <body>
-  <h1>WebSocket PWA</h1>
-  <input type="text" id="msg" placeholder="メッセージを入力" />
-  <button onclick="send()">送信</button>
+  <h1>WebSocket チャット</h1>
+  <p id="status">接続待機中...</p> <!-- 接続状態表示用 -->
   <ul id="chat"></ul>
+  <div id="controls"> <!-- 入力とボタンをグループ化 -->
+    <input type="text" id="msg" placeholder="メッセージを入力" disabled /> <!-- 初期状態は無効 -->
+    <button id="sendBtn" onclick="send()" disabled>送信</button> <!-- 初期状態は無効、ID追加 -->
+  </div>
 
   <script>
+    const chatUl = document.getElementById("chat");
+    const msgInput = document.getElementById("msg");
+    const sendBtn = document.getElementById("sendBtn");
+    const statusP = document.getElementById("status");
     let ws;
 
+    // WebSocketサーバーのURL (重要: ngrokは一時的なURLです。必要に応じて更新してください)
+    const wsUrl = "wss://88e7-110-0-83-247.ngrok-free.app";
+
+    // ステータス表示を更新する関数
+    function updateStatus(message, isError = false) {
+      statusP.textContent = message;
+      statusP.style.color = isError ? 'red' : '#666';
+      console.log(message); // コンソールにもログを出力
+    }
+
+    // チャットにメッセージを追加する関数
+    function addMessage(message, type = 'normal') {
+      const li = document.createElement("li");
+      li.textContent = message;
+      if (type === 'error') {
+        li.style.color = 'red';
+        li.style.fontStyle = 'italic';
+      } else if (type === 'info') {
+        li.style.color = 'blue';
+        li.style.fontStyle = 'italic';
+      }
+      chatUl.appendChild(li);
+      // 自動スクロール (一番下へ)
+      chatUl.scrollTop = chatUl.scrollHeight;
+    }
+
+    // WebSocket接続関数
     async function connect() {
-      const url = "wss://xxxx-xx-xx-xx.ngrok.io"; // ← ngrok URLをここに入れて
-      ws = new WebSocket(url);
+      updateStatus(`接続試行中: ${wsUrl}`);
+      msgInput.disabled = true; // 接続試行中は無効化
+      sendBtn.disabled = true;
 
-      ws.onopen = () => console.log("接続成功");
-      ws.onmessage = e => {
-        const li = document.createElement("li");
-        li.textContent = e.data;
-        document.getElementById("chat").appendChild(li);
-      };
-      ws.onclose = () => {
-        console.log("切断されました。再接続します…");
-        setTimeout(connect, 3000);
-      };
+      // 既存の接続があれば閉じる (再接続の場合)
+      if (ws && ws.readyState !== WebSocket.CLOSED) {
+        ws.close();
+      }
+
+      try {
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          updateStatus("接続成功！");
+          addMessage("サーバーに接続しました。", "info");
+          msgInput.disabled = false; // 接続成功したら有効化
+          sendBtn.disabled = false;
+          msgInput.focus(); // 入力欄にフォーカス
+        };
+
+        ws.onmessage = e => {
+          addMessage(e.data); // 受信メッセージを表示
+        };
+
+        ws.onclose = (event) => {
+          let reason = "";
+          // See https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent/code
+          if (event.code === 1000) { // Normal Closure
+              reason = "接続が正常に閉じられました。";
+          } else if (event.code === 1006) { // Abnormal Closure (often network issue or server down)
+              reason = "接続が予期せず切断されました。";
+          } else {
+              reason = `接続が閉じられました (コード: ${event.code}, 理由: ${event.reason || '不明'})。`;
+          }
+          updateStatus(`${reason} 3秒後に再接続します…`, true); // エラー扱いで表示
+          addMessage(reason + " 再接続を試みます...", "error");
+          msgInput.disabled = true; // 切断中は無効化
+          sendBtn.disabled = true;
+          setTimeout(connect, 3000); // 3秒後に再接続試行
+        };
+
+        ws.onerror = (error) => {
+          // onerrorの後には通常oncloseも呼ばれますが、念のためエラー表示
+          updateStatus("WebSocketエラーが発生しました。", true);
+          addMessage("接続エラーが発生しました。", "error");
+          console.error("WebSocket Error:", error);
+          // UIはoncloseで無効化されることが多いが、念のためここでも無効化
+          msgInput.disabled = true;
+          sendBtn.disabled = true;
+        };
+
+      } catch (error) {
+        // new WebSocket() 自体が失敗した場合 (URL形式不正など)
+        updateStatus(`WebSocket接続の初期化に失敗しました: ${error}`, true);
+        addMessage("WebSocketの初期化に失敗しました。", "error");
+        console.error("WebSocket Initialization Error:", error);
+        updateStatus("3秒後に再接続を試みます…", true);
+        setTimeout(connect, 3000); // 初期化失敗時もリトライ
+      }
     }
 
+    // メッセージ送信関数
     function send() {
-      const msg = document.getElementById("msg").value;
-      ws.send(msg);
-      document.getElementById("msg").value = "";
+      const msg = msgInput.value.trim(); // 前後の空白を削除
+
+      // 接続状態チェック
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        updateStatus("エラー: WebSocketが接続されていません。", true);
+        addMessage("送信失敗: サーバーに接続されていません。", "error");
+        return;
+      }
+
+      // 空メッセージチェック
+      if (msg === "") {
+        return; // 空なら送信しない
+      }
+
+      try {
+        ws.send(msg);
+        msgInput.value = ""; // 送信後に入力欄をクリア
+        msgInput.focus();    // 入力欄にフォーカスを戻す
+      } catch (error) {
+        updateStatus(`メッセージ送信エラー: ${error}`, true);
+        addMessage(`送信エラー: ${error}`, "error");
+        console.error("Send Error:", error);
+      }
     }
 
+    // Enterキーで送信するイベントリスナー
+    msgInput.addEventListener("keypress", function(event) {
+      // event.key === 'Enter' かつ Shiftキーなどが押されていない場合
+      if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault(); // デフォルトのEnterキー動作（フォーム送信や改行）をキャンセル
+        sendBtn.click(); // 送信ボタンのクリックイベントを発火させる (disabled状態も考慮される)
+      }
+    });
+
+    // ページ読み込み完了時にWebSocket接続を開始
     window.addEventListener("load", connect);
+
+    // Service Workerの登録
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js');
+      navigator.serviceWorker.register('sw.js')
+        .then(registration => {
+          console.log('Service Worker 登録成功:', registration.scope);
+        })
+        .catch(error => {
+          console.log('Service Worker 登録失敗:', error);
+        });
     }
   </script>
 </body>
 </html>
+
